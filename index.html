@@ -64,6 +64,12 @@ h1{font-size:30px;line-height:1.15;margin:0;color:var(--navy);letter-spacing:-.0
 .slots{display:grid;gap:8px;max-height:460px;overflow:auto;padding-right:2px}
 .slot{display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:left;width:100%;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:10px 12px;cursor:pointer}
 .slot:hover{border-color:var(--blue)}
+.slot.booked{cursor:not-allowed;background:var(--tint);border-style:dashed;color:var(--mute)}
+.slot.booked:hover{border-color:var(--line)}
+.slot.booked .t1{text-decoration:line-through;font-weight:600}
+.slot.booked .t2{color:var(--mute)}
+.badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--mute);border:1px solid var(--line);border-radius:999px;padding:1px 8px;margin-top:3px}
+.intro{margin:12px 0 0;max-width:620px;font-size:16px;color:var(--ink)}
 .slot[aria-pressed="true"]{border-color:var(--blue);background:var(--blue-50)}
 .slot .t1{font-weight:700;font-size:15px;font-variant-numeric:tabular-nums}
 .slot .t2{font-size:13px;color:var(--ink2);font-variant-numeric:tabular-nums;text-align:right}
@@ -101,6 +107,7 @@ textarea{min-height:92px;resize:vertical}
     <div>
       <h1 id="name"></h1>
       <div class="sub" id="aff"></div>
+      <p class="intro hide" id="intro"></p>
     </div>
     <div class="contact">
       <a class="btn" id="mail"></a>
@@ -192,12 +199,13 @@ const CONFIG = {
   name: "Seyeon (Yuna) Hwang",
   affiliation: "APPEAL · Ulsan National Institute of Science and Technology (UNIST)",
   email: "shw2704@unist.ac.kr",
-  cvUrl: "https://drive.google.com/drive/folders/1wuLu88gfZ1OsZ39RtsmVYZAgHw5PaFL3?usp=drive_link",                  // link to your CV PDF (optional)
+  intro: "Hi, I'm Yuna — I calculate what's possible, especially for chemical processes. Pick a time below and let's talk!",   // greeting under your name; "" to hide
+  cvUrl: "https://drive.google.com/file/d/1PuwQQXLeqn-vPAsl-zJVEyeCiHCGpiDS/view?usp=sharing",                  // link to your CV PDF (optional)
 
   durations: [30],    // minutes the visitor can choose
   defaultDuration: 30,
   stepMin: 30,                // start times every 30 min
-  minNoticeHours: 12,
+  minNoticeHours: 1,          // visitors can book from 1 hour ahead (today included)
   horizonDays: 90,            // how far ahead people can book
 
   meetingTypes: ["Coffee chat", "Research discussion", "Graduate study / opportunities", "Other"],
@@ -205,7 +213,7 @@ const CONFIG = {
   minnesota: {                // shown in a different colour
     tz: "America/Chicago", from: "2026-11-07", to: "2026-11-12", start: "07:00", end: "22:00",
     city: "Minneapolis, MN",
-    note: "Attending a conference at the Minneapolis Convention Center (Nov 8–12). Coffee chats and meals are very welcome!",
+    note: "Attending a conference at the Minneapolis Convention Center (Nov 8–12). Coffee chats are very welcome!",
     formats: ["In person (Minneapolis)", "Zoom"],
   },
   korea: {
@@ -245,7 +253,7 @@ const longDay = (s) => new Date(s + "T00:00:00Z").toLocaleDateString("en-US", { 
 const shortDay = (ms, tz) => fmt(ms, tz, { weekday: "short", month: "short", day: "numeric" });
 
 /* ---------- availability ---------- */
-let busy = [];                                   // [{start,end}] in ms, confirmed meetings only
+let booked = [], blocked = [], extra = [];       // from the backend: times only, no names (ms)
 let duration = CONFIG.defaultDuration, selDay = null, selSlot = null;
 
 function ruleFor(day) {
@@ -255,16 +263,20 @@ function ruleFor(day) {
   if (k.noSlots.includes(day) || !k.days.includes(dow(day))) return null;
   return { kind: "kr", tz: k.tz, start: k.start, end: k.end, formats: k.formats };
 }
-function slotsFor(day) {
-  const r = ruleFor(day); if (!r) return [];
-  const a = zoned(day, r.start, r.tz), b = zoned(day, r.end, r.tz);
-  const earliest = Date.now() + CONFIG.minNoticeHours * 3600e3, len = duration * 60e3, out = [];
-  for (let s = a; s + len <= b; s += CONFIG.stepMin * 60e3) {
-    if (s < earliest) continue;
-    if (busy.some((x) => x.start < s + len && s < x.end)) continue;
-    out.push(s);
+const kindInfo = (kind) => (kind === "mn" ? CONFIG.minnesota : CONFIG.korea);
+const isMnDay = (day) => day >= CONFIG.minnesota.from && day <= CONFIG.minnesota.to;
+function slotsFor(day) {                         // -> [{s, booked}] sorted; blocked times are left out
+  const wins = [], r = ruleFor(day);
+  if (r) wins.push({ a: zoned(day, r.start, r.tz), b: zoned(day, r.end, r.tz) });
+  for (const x of extra) if (dayKey(x.start, kindInfo(x.kind).tz) === day) wins.push({ a: x.start, b: x.end });
+  const earliest = Date.now() + CONFIG.minNoticeHours * 3600e3, len = duration * 60e3, step = CONFIG.stepMin * 60e3, seen = new Set(), out = [];
+  for (const w of wins) for (let s = w.a; s + len <= w.b; s += step) {
+    if (s < earliest || seen.has(s)) continue;
+    if (blocked.some((x) => x.start < s + len && s < x.end)) continue;
+    seen.add(s);
+    out.push({ s, booked: booked.some((x) => x.start < s + len && s < x.end) });
   }
-  return out;
+  return out.sort((p, q) => p.s - q.s);
 }
 
 /* ---------- calendar ---------- */
@@ -281,8 +293,8 @@ function renderCal() {
   for (let i = 0; i < dow(first); i++) { const e = document.createElement("div"); e.className = "day blank"; box.appendChild(e); }
   for (let d = 1; d <= n; d++) {
     const key = `${view}-${String(d).padStart(2, "0")}`, r = ruleFor(key);
-    const inRange = key >= todayKey && key <= lastKey, open = inRange && r && slotsFor(key).length > 0;
-    const isMn = key >= CONFIG.minnesota.from && key <= CONFIG.minnesota.to;
+    const inRange = key >= todayKey && key <= lastKey, open = inRange && slotsFor(key).some((x) => !x.booked);
+    const isMn = isMnDay(key);
     const el = document.createElement(open ? "button" : "div");
     el.className = "day" + (open ? " open" : "") + (isMn ? " mn" : "") + (key === selDay ? " sel" : "");
     el.innerHTML = `<span>${d}</span>${open ? '<i class="dot"></i>' : ""}`;
@@ -299,26 +311,28 @@ function showTimes() {
   $("timeStep").classList.remove("hide"); $("formStep").classList.add("hide"); $("doneStep").classList.add("hide");
   const box = $("slots"); box.innerHTML = "";
   if (!selDay) return;
-  const r = ruleFor(selDay), list = slotsFor(selDay);
-  $("dayinfo").innerHTML = r.kind === "mn"
+  const mnDay = isMnDay(selDay), list = slotsFor(selDay);
+  $("dayinfo").innerHTML = mnDay
     ? `<b>${longDay(selDay)}</b> · I'm in <b>Minneapolis</b> (times shown in US Central and Korea time)`
     : `<b>${longDay(selDay)}</b> (Korea) · UNIST or Zoom`;
   if (!list.length) { box.innerHTML = '<div class="empty">No times left on this day.</div>'; return; }
-  for (const s of list) {
+  for (const { s, booked: taken } of list) {
     const e = s + duration * 60e3, b = document.createElement("button");
-    b.type = "button"; b.className = "slot"; b.setAttribute("aria-pressed", "false");
-    const main = r.kind === "mn" ? US : KR, other = main === US ? KR : US;
+    b.type = "button"; b.className = "slot" + (taken ? " booked" : ""); b.setAttribute("aria-pressed", "false");
+    if (taken) { b.disabled = true; b.setAttribute("aria-label", "Booked"); }
+    const main = mnDay ? US : KR, other = main === US ? KR : US;
     const otherTxt = `${shortDay(s, other)} · ${hm(s, other)}–${hm(e, other)} ${tzAbbr(s, other)}`;
-    const mine = "";
-    b.innerHTML = `<span class="t1">${hm(s, main)}–${hm(e, main)} ${tzAbbr(s, main)}</span><span><div class="t2">${otherTxt}</div>${mine}</span>`;
-    b.onclick = () => { selSlot = s; openForm(); };
+    const mine = taken ? '<span class="badge">Booked</span>' : "";
+    b.innerHTML = `<span class="t1">${hm(s, main)}–${hm(e, main)} ${tzAbbr(s, main)}</span><span style="text-align:right"><div class="t2">${otherTxt}</div>${mine}</span>`;
+    if (!taken) b.onclick = () => { selSlot = s; openForm(); };
     box.appendChild(b);
   }
 }
 
 /* ---------- form ---------- */
 function openForm() {
-  const r = ruleFor(selDay), e = selSlot + duration * 60e3;
+  const r = { kind: isMnDay(selDay) ? "mn" : "kr" }; r.formats = kindInfo(r.kind).formats;
+  const e = selSlot + duration * 60e3;
   $("timeStep").classList.add("hide"); $("formStep").classList.remove("hide");
   $("pick").className = "pick" + (r.kind === "mn" ? " mn" : "");
   $("pick").innerHTML = `<b>${shortDay(selSlot, KR)} ${hm(selSlot, KR)}–${hm(e, KR)} KST</b> · ${shortDay(selSlot, US)} ${hm(selSlot, US)}–${hm(e, US)} ${tzAbbr(selSlot, US)}<br>${duration} min · ${r.kind === "mn" ? CONFIG.minnesota.city : "UNIST (Ulsan) or Zoom"}`;
@@ -344,7 +358,6 @@ $("form").onsubmit = async (ev) => {
   if (!data.name.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(data.email.trim()) || !data.message.trim()) {
     msg.className = "msg err"; msg.textContent = ERR.missing_fields; return;
   }
-  const r = ruleFor(selDay);
   const payload = { ...data, start: new Date(selSlot).toISOString(), duration, where: "" };
   $("send").disabled = true; $("send").textContent = "Sending…";
   try {
@@ -364,18 +377,18 @@ const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt
 
 /* ---------- busy times ---------- */
 async function loadBusy() {
+  const ms = (list) => (list || []).map((x) => ({ start: Date.parse(x.start), end: Date.parse(x.end), kind: x.kind === "mn" ? "mn" : "kr" }));
   try {
     if (demo) {
-      const k = (d, t, z) => zoned(d, t, z);
-      busy = [
-        { start: k("2026-11-09", "12:00", US), end: k("2026-11-09", "13:30", US) },
-        { start: k("2026-11-10", "08:00", US), end: k("2026-11-10", "09:00", US) },
-      ];
+      const k = (d, t, z) => new Date(zoned(d, t, z)).toISOString();
+      booked = ms([{ start: k("2026-11-09", "12:00", US), end: k("2026-11-09", "13:30", US) }]);
+      blocked = ms([{ start: k("2026-11-10", "08:00", US), end: k("2026-11-10", "12:00", US) }]);
+      extra = ms([{ start: k("2026-11-21", "10:00", KR), end: k("2026-11-21", "12:00", KR), kind: "kr" }]);
     } else {
       const j = await (await fetch(CONFIG.BACKEND_URL + "?action=busy")).json();
-      busy = (j.busy || []).map((x) => ({ start: Date.parse(x.start), end: Date.parse(x.end) }));
+      booked = ms(j.booked || j.busy); blocked = ms(j.blocked); extra = ms(j.open);
     }
-  } catch (e) { busy = []; }
+  } catch (e) { booked = []; blocked = []; extra = []; }
   renderCal(); if (selDay && !selSlot) showTimes();
 }
 
@@ -383,6 +396,7 @@ async function loadBusy() {
 function init() {
   document.title = "Meet " + CONFIG.name;
   $("name").textContent = CONFIG.name; $("aff").textContent = CONFIG.affiliation;
+  if (CONFIG.intro) { $("intro").textContent = CONFIG.intro; $("intro").classList.remove("hide"); }
   $("mail").textContent = CONFIG.email; $("mail").href = "mailto:" + CONFIG.email;
   if (CONFIG.cvUrl) { $("cv").href = CONFIG.cvUrl; $("cv").classList.remove("hide"); }
   if (demo) $("demo").classList.remove("hide");

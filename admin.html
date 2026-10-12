@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Meeting admin</title>
+<style>
+:root{
+  --navy:#001B54; --blue:#007CD0; --blue-50:#E8F3FB; --ink:#1A1A1A; --ink2:#4A4A4A; --mute:#8C8C8C;
+  --line:#E3E3E3; --tint:#F5F6F8; --bg:#FFFFFF; --card:#FFFFFF;
+  --mn:#B45309; --mn-bg:#FFF4E5; --ok:#0F7B4A; --ok-bg:#E7F6EE; --err:#B42318; --err-bg:#FDECEA;
+}
+@media (prefers-color-scheme: dark){ :root{
+  --navy:#BFD3FF; --blue:#4BA9F0; --blue-50:#132A40; --ink:#ECEEF2; --ink2:#C3C7CF; --mute:#8E95A1;
+  --line:#2C3340; --tint:#161B23; --bg:#0E1218; --card:#121821;
+  --mn:#F5B562; --mn-bg:#2B2012; --ok:#4CC38A; --ok-bg:#12301F; --err:#FF8A80; --err-bg:#3A1A18;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding:24px 16px 60px}
+h1{font-size:24px;margin:0;color:var(--navy)}
+h2{font-size:18px;margin:0 0 12px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
+.btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:7px 12px;font:600 13px/1.2 inherit;cursor:pointer}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.danger{color:var(--err)}
+.btn:disabled{opacity:.5;cursor:default}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+textarea{width:100%;min-height:54px}
+label{font-size:12px;font-weight:600;color:var(--ink2);display:grid;gap:4px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.chip{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:var(--bg)}
+.req{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.req .when{font-weight:700;font-variant-numeric:tabular-nums}
+.req .when small{font-weight:400;color:var(--ink2)}
+.req .who{margin-top:4px}
+.req .meta{font-size:13px;color:var(--ink2)}
+.req .msgtxt{white-space:pre-wrap;background:var(--tint);border-radius:8px;padding:8px 10px;margin:8px 0;font-size:14px}
+.st{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-radius:999px;padding:2px 8px;margin-left:6px;vertical-align:2px}
+.st.pending{background:var(--mn-bg);color:var(--mn)} .st.confirmed{background:var(--ok-bg);color:var(--ok)}
+.st.declined,.st.cancelled{background:var(--tint);color:var(--mute)}
+.actions{display:flex;gap:6px;flex-wrap:wrap}
+.edit{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+.edit .full{grid-column:1/-1}
+.row{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
+.av{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--line);padding:8px 0;font-size:14px}
+.av .type{font-weight:700} .av .type.block{color:var(--err)} .av .type.open{color:var(--ok)}
+.note{font-size:13px;color:var(--mute)}
+.msg{border-radius:8px;padding:9px 12px;font-size:14px;margin-bottom:12px}
+.msg.err{background:var(--err-bg);color:var(--err)} .msg.ok{background:var(--ok-bg);color:var(--ok)}
+.hide{display:none!important}
+@media (max-width:700px){ .edit{grid-template-columns:1fr 1fr} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>Meeting admin</h1>
+    <div class="actions"><button class="btn hide" id="refresh">Refresh</button><button class="btn hide" id="logout">Log out</button></div>
+  </div>
+  <div id="flash" class="msg hide" role="status"></div>
+
+  <section class="panel" id="login">
+    <h2>Sign in</h2>
+    <form class="row" id="loginForm">
+      <label style="flex:1;min-width:220px">Admin key (SETTINGS.ADMIN_KEY in Code.gs)<input type="password" id="key" autocomplete="current-password" required></label>
+      <button class="btn primary">Open</button>
+    </form>
+  </section>
+
+  <div id="app" class="hide">
+    <section class="panel">
+      <h2>Requests</h2>
+      <div class="chips" id="filters"></div>
+      <div id="reqs"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Availability changes</h2>
+      <p class="note" style="margin-top:-6px">Weekly hours and the Minneapolis dates live in <code>index.html</code> (CONFIG). Use this for one-off changes.</p>
+      <form id="availForm" class="edit" style="border-top:0;margin-top:0;padding-top:0">
+        <label>Type<select id="avType"><option value="block">Block (not available)</option><option value="open">Open extra time</option></select></label>
+        <label>Date<input type="date" id="avDate" required></label>
+        <label>From<input type="time" id="avFrom" step="1800" required></label>
+        <label>To<input type="time" id="avTo" step="1800" required></label>
+        <label>Time zone<select id="avTz"><option value="Asia/Seoul">Korea (KST)</option><option value="America/Chicago">US Central (Minneapolis)</option></select></label>
+        <label>Where (for extra time)<select id="avKind"><option value="kr">UNIST / Zoom</option><option value="mn">Minneapolis</option></select></label>
+        <label class="full" style="grid-column:span 2">Note (private)<input id="avNote" placeholder="e.g. lab meeting"></label>
+        <div class="full"><button class="btn primary">Add</button></div>
+      </form>
+      <div id="avList" style="margin-top:12px"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const BACKEND_URL = "https://script.google.com/macros/s/AKfycbwEB_lgiPGzJPGpr9f9r_ZnGrLcMSs3YCiDiX2dlneCWliXGZ4SMkAM4feTq9TskrzR0w/exec";   // same URL as in index.html
+
+const KR = "Asia/Seoul", US = "America/Chicago", $ = (id) => document.getElementById(id);
+let KEY = "", data = { requests: [], availability: [] }, filter = "pending";
+try { KEY = sessionStorage.getItem("meetAdminKey") || ""; } catch (e) {}
+
+/* time helpers */
+function offsetMs(ms, tz) {
+  const p = {}; new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    .formatToParts(new Date(ms)).forEach((x) => (p[x.type] = x.value));
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - Math.floor(ms / 1000) * 1000;
+}
+function zoned(dateStr, hhmm, tz) {
+  const [y, m, d] = dateStr.split("-").map(Number), [h, mi] = hhmm.split(":").map(Number), g = Date.UTC(y, m - 1, d, h, mi);
+  let t = g - offsetMs(g, tz); return g - offsetMs(t, tz);
+}
+const fmt = (ms, tz, o) => new Intl.DateTimeFormat("en-US", { timeZone: tz, ...o }).format(new Date(ms));
+const hm = (ms, tz) => fmt(ms, tz, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const day = (ms, tz) => fmt(ms, tz, { weekday: "short", month: "short", day: "numeric" });
+const abbr = (ms, tz) => (tz === KR ? "KST" : fmt(ms, tz, { timeZoneName: "short" }).split(" ").pop());
+const ymd = (ms, tz) => fmt(ms, tz, { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/(\d+)\/(\d+)\/(\d+)/, "$3-$1-$2");
+const both = (s, e) => `${day(s, KR)} ${hm(s, KR)}–${hm(e, KR)} KST <small>· ${day(s, US)} ${hm(s, US)}–${hm(e, US)} ${abbr(s, US)}</small>`;
+const esc = (s) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* backend */
+async function call(op, extra = {}) {
+  const r = await fetch(BACKEND_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ admin: { key: KEY, op, ...extra } }) });
+  return r.json();
+}
+const ERR = { wrong_key: "Wrong admin key.", admin_disabled: "Set SETTINGS.ADMIN_KEY (12+ characters) in Code.gs and deploy a new version.",
+  slot_taken: "That time overlaps another confirmed meeting.", bad_time: "Please check the date and time.", not_found: "Not found — refresh the page." };
+function flash(text, ok) { const f = $("flash"); f.className = "msg " + (ok ? "ok" : "err"); f.textContent = text; clearTimeout(flash.t); flash.t = setTimeout(() => f.classList.add("hide"), 5000); }
+
+async function load() {
+  const res = await call("list");
+  if (!res.ok) { flash(ERR[res.error] || "Could not load (" + res.error + ").", false); if (res.error === "wrong_key") logout(); return; }
+  data = res; $("login").classList.add("hide"); $("app").classList.remove("hide"); $("refresh").classList.remove("hide"); $("logout").classList.remove("hide");
+  render();
+}
+function logout() { KEY = ""; try { sessionStorage.removeItem("meetAdminKey"); } catch (e) {} $("app").classList.add("hide"); $("login").classList.remove("hide"); $("refresh").classList.add("hide"); $("logout").classList.add("hide"); }
+
+/* requests */
+const FILTERS = [["pending", "Pending"], ["confirmed", "Confirmed"], ["past", "Declined / cancelled / past"]];
+function render() {
+  const now = Date.now(), reqs = data.requests.map((r) => ({ ...r, s: Date.parse(r.start_utc), e: Date.parse(r.end_utc) })).sort((a, b) => a.s - b.s);
+  const groups = {
+    pending: reqs.filter((r) => r.status === "pending" && r.e > now),
+    confirmed: reqs.filter((r) => r.status === "confirmed" && r.e > now),
+    past: reqs.filter((r) => !((r.status === "pending" || r.status === "confirmed") && r.e > now)).reverse(),
+  };
+  $("filters").innerHTML = FILTERS.map(([k, l]) => `<button class="chip" data-f="${k}" aria-pressed="${k === filter}">${l} (${groups[k].length})</button>`).join("");
+  $("filters").querySelectorAll(".chip").forEach((b) => (b.onclick = () => { filter = b.dataset.f; render(); }));
+  const list = groups[filter];
+  $("reqs").innerHTML = list.length ? "" : '<p class="note">Nothing here.</p>';
+  for (const r of list) {
+    const el = document.createElement("div"); el.className = "req";
+    const live = (r.status === "pending" || r.status === "confirmed") && r.e > now;
+    el.innerHTML = `
+      <div class="when">${both(r.s, r.e)}<span class="st ${esc(r.status)}">${esc(r.status)}</span></div>
+      <div class="who"><b>${esc(r.name)}</b>${r.affiliation ? " · " + esc(r.affiliation) : ""} · <a href="mailto:${esc(r.email)}">${esc(r.email)}</a>${r.phone ? " · " + esc(r.phone) : ""}</div>
+      <div class="meta">${esc(r.meeting_type)} · ${esc(r.duration_min)} min · ${esc(r.format)}</div>
+      <div class="msgtxt">${esc(r.message)}</div>
+      <div class="actions">${live ? (r.status === "pending"
+        ? `<button class="btn primary" data-a="approve">Approve</button><button class="btn" data-a="decline">Decline</button><button class="btn" data-a="edit">Change time</button>`
+        : `<button class="btn" data-a="edit">Change time</button><button class="btn danger" data-a="cancel">Cancel meeting</button>`) : ""}</div>
+      <form class="edit hide">
+        <label>Date<input type="date" name="d" required value="${ymd(r.s, KR)}"></label>
+        <label>Start<input type="time" name="t" step="900" required value="${hm(r.s, KR)}"></label>
+        <label>Time zone<select name="tz"><option value="${KR}">Korea (KST)</option><option value="${US}">US Central</option></select></label>
+        <label>Length (min)<input type="number" name="len" min="10" max="480" step="5" value="${esc(r.duration_min)}"></label>
+        <label class="full">Note to the requester (optional)<textarea name="note"></textarea></label>
+        <label class="full" style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" name="notify" checked style="width:auto"> Email the requester about the new time</label>
+        <div class="full actions"><button class="btn primary">Save new time</button><button type="button" class="btn" data-a="close">Close</button></div>
+      </form>`;
+    const form = el.querySelector("form");
+    form.tz.onchange = () => { form.d.value = ymd(r.s, form.tz.value); form.t.value = hm(r.s, form.tz.value); };
+    el.querySelectorAll("[data-a]").forEach((b) => (b.onclick = async () => {
+      const a = b.dataset.a;
+      if (a === "edit") return form.classList.remove("hide");
+      if (a === "close") return form.classList.add("hide");
+      if (a === "cancel" && !confirm(`Cancel the meeting with ${r.name}? They will be emailed.`)) return;
+      if (a === "decline" && !confirm(`Decline ${r.name}'s request?`)) return;
+      b.disabled = true;
+      const res = await call(a, { id: r.id });
+      b.disabled = false;
+      if (!res.ok) return flash(ERR[res.error] || res.error, false);
+      flash({ approve: "Approved — confirmation sent.", decline: "Declined.", cancel: "Cancelled — requester emailed." }[a], true); load();
+    }));
+    form.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const start = new Date(zoned(form.d.value, form.t.value, form.tz.value)).toISOString();
+      const res = await call("reschedule", { id: r.id, start, duration: +form.len.value, note: form.note.value, notify: form.notify.checked });
+      if (!res.ok) return flash(ERR[res.error] || res.error, false);
+      flash("Time updated" + (form.notify.checked ? " — requester emailed." : "."), true); load();
+    };
+    $("reqs").appendChild(el);
+  }
+  renderAvail();
+}
+
+/* availability */
+function renderAvail() {
+  const now = Date.now(), list = data.availability.map((a) => ({ ...a, s: Date.parse(a.start_utc), e: Date.parse(a.end_utc) })).filter((a) => a.e > now).sort((a, b) => a.s - b.s);
+  $("avList").innerHTML = list.length ? "" : '<p class="note">No one-off changes.</p>';
+  for (const a of list) {
+    const el = document.createElement("div"); el.className = "av";
+    el.innerHTML = `<div><span class="type ${a.type}">${a.type === "block" ? "Blocked" : "Extra open (" + (a.kind === "mn" ? "Minneapolis" : "UNIST / Zoom") + ")"}</span> · ${both(a.s, a.e)}${a.note ? `<div class="note">${esc(a.note)}</div>` : ""}</div><button class="btn danger">Remove</button>`;
+    el.querySelector("button").onclick = async () => {
+      const res = await call("delAvail", { id: a.id });
+      if (!res.ok) return flash(ERR[res.error] || res.error, false);
+      flash("Removed.", true); load();
+    };
+    $("avList").appendChild(el);
+  }
+}
+$("avTz").onchange = () => { $("avKind").value = $("avTz").value === US ? "mn" : "kr"; };
+$("availForm").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const tz = $("avTz").value, d = $("avDate").value, to = $("avTo").value === "00:00" ? "24:00" : $("avTo").value;
+  const s = zoned(d, $("avFrom").value, tz), e = zoned(d, to, tz);
+  if (e <= s) return flash("'To' must be after 'From'.", false);
+  const res = await call("addAvail", { type: $("avType").value, start: new Date(s).toISOString(), end: new Date(e).toISOString(), kind: $("avKind").value, note: $("avNote").value });
+  if (!res.ok) return flash(ERR[res.error] || res.error, false);
+  flash("Added.", true); $("avNote").value = ""; load();
+};
+
+/* login */
+$("loginForm").onsubmit = (ev) => { ev.preventDefault(); KEY = $("key").value; try { sessionStorage.setItem("meetAdminKey", KEY); } catch (e) {} load(); };
+$("refresh").onclick = load;
+$("logout").onclick = logout;
+if (KEY) load();
+</script>
+</body>
+</html>
