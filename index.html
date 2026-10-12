@@ -309,7 +309,7 @@ function showTimes() {
     b.type = "button"; b.className = "slot"; b.setAttribute("aria-pressed", "false");
     const main = r.kind === "mn" ? US : KR, other = main === US ? KR : US;
     const otherTxt = `${shortDay(s, other)} · ${hm(s, other)}–${hm(e, other)} ${tzAbbr(s, other)}`;
-    const mine = viewerTZ !== KR && viewerTZ !== US ? `<div class="t3">Your time: ${shortDay(s, viewerTZ)} ${hm(s, viewerTZ)}–${hm(e, viewerTZ)} ${tzAbbr(s, viewerTZ)}</div>` : "";
+    const mine = "";
     b.innerHTML = `<span class="t1">${hm(s, main)}–${hm(e, main)} ${tzAbbr(s, main)}</span><span><div class="t2">${otherTxt}</div>${mine}</span>`;
     b.onclick = () => { selSlot = s; openForm(); };
     box.appendChild(b);
